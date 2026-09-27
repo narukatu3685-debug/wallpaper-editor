@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# アプリの実行時生成物
+_wallpaper_editor_tmp.jpg
+*_edited_*/
+
+# OS
+Thumbs.db
+
+# デバッグ用の一時ログ
+gui_stderr*.log
+gui_stdout*.log
+
+
+# Claude Code の個人設定
+.claude/settings.local.json

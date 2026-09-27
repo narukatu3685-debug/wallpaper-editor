@@ -1,0 +1,11 @@
+.git
+__pycache__
+*.pyc
+.pytest_cache
+docs
+CLAUDE.md
+README.md
+gui_screenshot*.png
+gui_stdout.log
+gui_stderr.log
+pid.txt

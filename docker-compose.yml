@@ -1,0 +1,25 @@
+name: wallpaper-editor
+
+services:
+  claude:
+    image: wallpaper-editor:latest
+    build: .
+    volumes:
+      - .:/workspace
+      - ${USERPROFILE}/.claude:/root/.claude
+      - ${USERPROFILE}/.claude.json:/root/.claude.json
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    command: claude --dangerously-skip-permissions
+
+  # claude と同じイメージ（wallpaper-editor:latest）を使い回す。
+  # 2サービスが同時に build: を持つと、このディレクトリ名（非ASCII文字のみ）で
+  # docker compose build が buildx bake 経路の既知バグを踏むため、
+  # ビルド対象は claude サービスの1つに絞っている。
+  test:
+    image: wallpaper-editor:latest
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    command: python3 -m pytest -q

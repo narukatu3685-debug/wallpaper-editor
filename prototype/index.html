@@ -1,0 +1,1371 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>壁紙加工ツール（プロトタイプ）</title>
+<style>
+  /*
+    デザインコンセプト: 「暗室（ダークルーム）のカラーグレーディング卓」
+    現像液（develop / 明るさ系）・停止液（stop / 質感・効果系）・
+    色素浴（dye / 色系）・定着（fix / 変形・仕上げ系）という
+    暗室の4つの工程になぞらえ、調整グループごとに固有の色（インジケーター）を割り当てる。
+    背景は色の判定を狂わせない中立に近い暖色寄りのほぼ黒（プロの色校正卓の定石）。
+  */
+  :root {
+    --bg: #0e0d0b;
+    --panel: #17140f;
+    --panel-2: #1f1b15;
+    --panel-3: #262119;
+    --border: #332c22;
+    --border-soft: #241f18;
+    --text: #ece6d9;
+    --text-dim: #9c9384;
+    --text-faint: #6b6455;
+
+    --develop: #e0913a;   /* 明るさ系（現像=光をおこす） */
+    --dye: #c96fae;       /* 色系（色素浴） */
+    --stop: #4fb6ba;      /* 質感・効果系（停止液） */
+    --fix: #7c8fe0;       /* 変形・仕上げ系（定着） */
+    --ok: #74bf7e;
+    --danger: #e2604f;
+
+    --accent: var(--develop);
+
+    --font-display: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic UI", "Segoe UI", sans-serif;
+    --font-mono: "Cascadia Code", "JetBrains Mono", Consolas, "SFMono-Regular", monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: var(--font-display);
+    background:
+      radial-gradient(1200px 500px at 15% -10%, #1c1710 0%, transparent 60%),
+      var(--bg);
+    color: var(--text);
+  }
+
+  header {
+    position: relative;
+    padding: 16px 22px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  header::before {
+    content: "";
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--develop), var(--dye) 34%, var(--stop) 67%, var(--fix));
+  }
+  header h1 {
+    font-size: 15px; margin: 0;
+    font-weight: 700; letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+  header h1::before {
+    content: "◆ ";
+    color: var(--develop);
+    letter-spacing: 0;
+  }
+  .notice {
+    font-size: 11.5px;
+    line-height: 1.6;
+    color: var(--text-dim);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    padding: 5px 12px;
+    border-radius: 3px;
+  }
+
+  main {
+    display: grid;
+    grid-template-columns: 168px 1fr 350px;
+    gap: 16px;
+    padding: 16px;
+    align-items: start;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 14px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.02), 0 1px 0 rgba(0,0,0,.4);
+  }
+  .panel h2 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .12em;
+    font-weight: 700;
+    color: var(--text-faint);
+    margin: 0 0 10px;
+  }
+
+  /* サムネイル一覧（F-02） */
+  #thumbs { display: flex; flex-direction: column; gap: 8px; }
+  .thumb {
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+    cursor: pointer;
+    background: #000;
+    transition: border-color .15s ease;
+  }
+  .thumb img { display: block; width: 100%; height: 70px; object-fit: cover; opacity: .78; transition: opacity .15s ease; }
+  .thumb:hover { border-color: var(--text-faint); }
+  .thumb.active { border-color: var(--develop); box-shadow: 0 0 0 1px var(--develop); }
+  .thumb.active img { opacity: 1; }
+  .thumb-label {
+    font-size: 9.5px;
+    font-family: var(--font-mono);
+    text-align: center;
+    padding: 3px 0;
+    color: var(--text-dim);
+    background: var(--panel-3);
+    letter-spacing: .02em;
+  }
+
+  /* プレビュー（F-01） */
+  .preview-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    gap: 10px;
+    flex-wrap: wrap;
+    background: var(--panel-2);
+  }
+  .preview-toolbar .hint { font-size: 11px; color: var(--text-dim); }
+  #previewStage {
+    position: relative;
+    background: #000;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 480px;
+  }
+  #previewImg {
+    max-width: 100%;
+    max-height: 560px;
+    display: block;
+    transition: filter .05s linear, transform .15s ease;
+  }
+  #previewImgOriginal {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    max-width: 100%;
+    max-height: 560px;
+    display: none;
+  }
+  .overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  #vignetteOverlay { background: radial-gradient(ellipse at center, rgba(0,0,0,0) 40%, rgba(0,0,0,0.85) 100%); opacity: 0; }
+  #warmthOverlay { mix-blend-mode: overlay; opacity: 0; }
+  #curveTintOverlay { mix-blend-mode: soft-light; opacity: 0; }
+
+  /* トリミング（F-15） */
+  #cropBox {
+    position: absolute;
+    border: 1.5px dashed var(--develop);
+    background: rgba(224,145,58,.10);
+    display: none;
+    cursor: move;
+  }
+  #cropBox .handle {
+    position: absolute;
+    width: 13px; height: 13px;
+    right: -7px; bottom: -7px;
+    background: var(--develop);
+    border-radius: 2px;
+    cursor: nwse-resize;
+  }
+
+  /* Before/After（F-19） */
+  #baOriginal {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    display: none;
+  }
+  #baOriginal img { max-width: 100%; max-height: 560px; display: block; margin: auto; }
+  #baDivider {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 1px;
+    background: var(--develop);
+    box-shadow: 0 0 10px rgba(224,145,58,.7);
+    display: none;
+    pointer-events: none;
+  }
+  #baLabelBefore, #baLabelAfter {
+    position: absolute; top: 8px;
+    font-size: 9.5px; letter-spacing: .1em; font-family: var(--font-mono);
+    background: rgba(0,0,0,.6); color: var(--text); padding: 3px 8px; border-radius: 2px;
+    display: none;
+  }
+  #baLabelBefore { left: 8px; }
+  #baLabelAfter { right: 8px; }
+
+  .preview-meta {
+    position: absolute;
+    left: 10px;
+    bottom: 10px;
+    font-size: 10.5px;
+    font-family: var(--font-mono);
+    color: var(--text-dim);
+    background: rgba(0,0,0,.55);
+    padding: 3px 9px;
+    border-radius: 2px;
+  }
+
+  /* 調整パネル（スクロール可能・グループ分け） */
+  #adjustPanel { max-height: 82vh; overflow-y: auto; padding-right: 4px; }
+  .field { margin-bottom: 14px; }
+  .field label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12.5px;
+    margin-bottom: 5px;
+    color: var(--text);
+  }
+  .field label .val {
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    background: var(--panel-3);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 1px 6px;
+    min-width: 2.6em;
+    text-align: right;
+  }
+  .field .hint { font-size: 10.5px; color: var(--text-faint); margin-top: 4px; line-height: 1.5; }
+
+  input[type="range"] {
+    width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--develop);
+    border: 2px solid #0e0d0b;
+    box-shadow: 0 0 0 1px var(--develop);
+    cursor: pointer;
+    transition: box-shadow .15s ease;
+  }
+  input[type="range"]:hover::-webkit-slider-thumb,
+  input[type="range"]:focus::-webkit-slider-thumb {
+    box-shadow: 0 0 0 4px rgba(224,145,58,.25);
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--develop); border: 2px solid #0e0d0b;
+    cursor: pointer;
+  }
+
+  input[type="text"], input[type="number"], select {
+    background: var(--panel-3); border: 1px solid var(--border);
+    color: var(--text); border-radius: 3px; padding: 6px 8px; font: inherit;
+    font-family: var(--font-mono); font-size: 12.5px;
+  }
+  select { font-family: var(--font-display); }
+
+  .group-title {
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--text);
+    margin: 22px 0 12px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-soft);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .group-title::before {
+    content: "";
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--text-faint);
+    box-shadow: 0 0 6px transparent;
+    flex-shrink: 0;
+  }
+  .group-title[data-hue="light"]::before { background: var(--develop); box-shadow: 0 0 6px var(--develop); }
+  .group-title[data-hue="color"]::before { background: var(--dye); box-shadow: 0 0 6px var(--dye); }
+  .group-title[data-hue="texture"]::before { background: var(--stop); box-shadow: 0 0 6px var(--stop); }
+  .group-title[data-hue="transform"]::before { background: var(--fix); box-shadow: 0 0 6px var(--fix); }
+  .group-title:first-of-type { margin-top: 0; padding-top: 0; border-top: none; }
+  .group-title .count { font-size: 9px; color: var(--text-faint); font-weight: 400; letter-spacing: .04em; text-transform: none; font-family: var(--font-mono); }
+  .section-title {
+    font-size: 10px;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: .1em;
+    font-weight: 700;
+    margin: 14px 0 8px;
+  }
+  .adv-tag {
+    font-size: 9px;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    letter-spacing: .04em;
+    color: var(--stop);
+    border: 1px solid var(--stop);
+    border-radius: 2px;
+    padding: 1px 5px;
+    line-height: 1.5;
+  }
+
+  button {
+    font: inherit;
+    cursor: pointer;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--text-dim);
+    padding: 7px 12px;
+    transition: border-color .15s ease, color .15s ease, background .15s ease;
+  }
+  button:hover { border-color: var(--text-dim); color: var(--text); }
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn-row button.active {
+    border-color: var(--develop); color: var(--develop);
+    background: color-mix(in srgb, var(--develop) 12%, var(--panel-2));
+  }
+  .btn-row.small button { padding: 5px 9px; font-size: 12px; }
+
+  #autoCorrectBtns button { text-align: left; }
+
+  .swatch-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .swatch {
+    width: 20px; height: 20px; border-radius: 50%;
+    border: 2px solid var(--border);
+    cursor: pointer;
+    transition: transform .1s ease;
+  }
+  .swatch:hover { transform: scale(1.12); }
+  .swatch.active { border-color: var(--text); box-shadow: 0 0 0 1px var(--text-faint); }
+
+  .resize-inputs { display: flex; align-items: center; gap: 6px; }
+  .resize-inputs input[type="number"] { width: 72px; }
+  .lock-btn { padding: 5px 8px; }
+
+  #resetBtn { width: 100%; margin-top: 4px; }
+  #resetBtn:hover { border-color: var(--danger); color: var(--danger); }
+
+  /* トーンカーブ（F-21） */
+  #curveCanvas {
+    background:
+      repeating-linear-gradient(0deg, transparent, transparent 24px, var(--border-soft) 24px, var(--border-soft) 25px),
+      repeating-linear-gradient(90deg, transparent, transparent 24px, var(--border-soft) 24px, var(--border-soft) 25px),
+      var(--panel-3);
+    border: 1px solid var(--border);
+    border-radius: 3px; cursor: crosshair; width: 100%; height: 150px;
+  }
+  #curveChannelBtns button { font-family: var(--font-mono); font-size: 11px; padding: 4px 10px; }
+
+  /* HSL帯選択（F-23） */
+  .hue-band-row { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+  .hue-band {
+    width: 24px; height: 24px; border-radius: 3px; cursor: pointer;
+    border: 2px solid transparent;
+    transition: transform .1s ease;
+  }
+  .hue-band:hover { transform: scale(1.1); }
+  .hue-band.active { border-color: var(--text); box-shadow: 0 0 0 1px var(--dye); }
+
+  /* 下部アクションバー */
+  #actionBar {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+  #actionBar .actions { display: flex; flex-direction: column; gap: 10px; }
+  #actionBar .actions-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
+  #applyAllBtn {
+    background: var(--develop); border-color: var(--develop); color: #1c1000; font-weight: 700;
+    letter-spacing: .02em;
+  }
+  #applyAllBtn:hover { background: #ec9f4c; border-color: #ec9f4c; color: #1c1000; }
+  #setWallpaperBtn {
+    background: transparent; border: 1px solid var(--fix); color: var(--fix); font-weight: 700;
+  }
+  #setWallpaperBtn:hover { background: color-mix(in srgb, var(--fix) 15%, transparent); color: var(--fix); }
+  #log {
+    font-size: 11.5px;
+    font-family: var(--font-mono);
+    color: var(--text-dim);
+    min-height: 18px;
+  }
+  #log.ok { color: var(--ok); }
+
+  .slideshow-row {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    font-size: 12px; color: var(--text-dim);
+  }
+  .slideshow-row .title {
+    color: var(--text-faint); font-size: 10.5px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .1em;
+  }
+  #slideshowToggleBtn.active {
+    border-color: var(--ok); color: var(--ok);
+    background: color-mix(in srgb, var(--ok) 12%, var(--panel-2));
+  }
+  .slideshow-row .hint { font-size: 10.5px; color: var(--text-faint); flex-basis: 100%; line-height: 1.5; }
+
+  .output-settings {
+    display: flex; gap: 22px; flex-wrap: wrap;
+    font-size: 12px; color: var(--text-dim);
+    border-top: 1px solid var(--border-soft);
+    padding-top: 12px;
+  }
+  .output-settings .group { display: flex; flex-direction: column; gap: 6px; }
+  .output-settings label.title {
+    color: var(--text-faint); font-size: 10.5px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .1em;
+  }
+  .radio-row, .rename-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .rename-row input[type="number"] { width: 56px; }
+  .rename-row input[type="text"] { width: 110px; }
+  #renamePreview { color: var(--develop); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+  progress {
+    width: 220px; height: 5px; accent-color: var(--develop); display: none;
+    border-radius: 3px; overflow: hidden; border: none;
+  }
+
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,.7);
+    display: none; align-items: center; justify-content: center; z-index: 10;
+  }
+  .modal-backdrop.show { display: flex; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+    padding: 22px; width: 320px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.5);
+  }
+  .modal h3 { margin: 0 0 10px; font-size: 14px; letter-spacing: .04em; }
+  .modal p { font-size: 12.5px; color: var(--text-dim); line-height: 1.6; }
+  .modal .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>壁紙加工ツール（プロトタイプ）</h1>
+  <span class="notice">これはUI/UX確認用のデモです。実際の画像処理・保存・壁紙変更は行われません。<span class="adv-tag" style="margin-left:6px;">上級</span> 印は今回追加された高度な調整（Should・実装は後回しの可能性あり）です。</span>
+</header>
+
+<main>
+
+  <!-- F-02: プレビュー画像の切り替え -->
+  <div class="panel">
+    <h2>対象画像（F-02）</h2>
+    <div id="thumbs"></div>
+    <p class="field hint" style="margin-top:10px;">実際は対象フォルダの画像が一覧表示されます（デモでは4枚のみ）。</p>
+  </div>
+
+  <!-- F-01: プレビュー + F-19 Before/After -->
+  <div class="panel" style="padding:0; overflow:hidden;">
+    <div class="preview-toolbar">
+      <button id="baToggleBtn">Before / After 比較（F-19）</button>
+      <span class="hint" id="baHint" style="display:none;">スライダーで比較位置を動かせます</span>
+      <input type="range" id="baSlider" min="0" max="100" value="50" style="display:none; width:160px;">
+    </div>
+    <div id="previewStage">
+      <img id="previewImg" src="assets/sample-01.jpg" alt="preview">
+      <div id="baOriginal"><img id="previewImgOriginal" src="assets/sample-01.jpg" alt="original"></div>
+      <div id="baDivider"></div>
+      <div id="baLabelBefore">BEFORE</div>
+      <div id="baLabelAfter">AFTER</div>
+      <div id="warmthOverlay" class="overlay"></div>
+      <div id="curveTintOverlay" class="overlay"></div>
+      <div id="vignetteOverlay" class="overlay"></div>
+      <div id="cropBox"><div class="handle" id="cropHandle"></div></div>
+      <div class="preview-meta" id="previewMeta">sample-01.jpg</div>
+    </div>
+  </div>
+
+  <!-- 調整パネル -->
+  <div class="panel">
+    <h2>調整</h2>
+    <div id="adjustPanel">
+
+    <div class="group-title" data-hue="light">明るさ系 <span class="count">brightness / contrast / curve...</span></div>
+    <div class="field">
+      <label>明るさ <span class="val" id="v-brightness">100%</span></label>
+      <input type="range" id="brightness" min="0" max="200" value="100">
+    </div>
+    <div class="field">
+      <label>コントラスト <span class="val" id="v-contrast">100%</span></label>
+      <input type="range" id="contrast" min="0" max="200" value="100">
+    </div>
+    <div class="field">
+      <label>トーンカーブ <span class="adv-tag">上級</span></label>
+      <div class="btn-row small" id="curveChannelBtns">
+        <button data-ch="rgb" class="active">全体</button>
+        <button data-ch="r">R</button>
+        <button data-ch="g">G</button>
+        <button data-ch="b">B</button>
+      </div>
+      <canvas id="curveCanvas" width="260" height="150" style="margin-top:6px;"></canvas>
+      <div class="hint">曲線上のクリックで点を追加、ドラッグで自由な位置に移動、ダブルクリックで点を削除できます（F-21）。チャンネル（全体/R/G/B）ごとに別々のカーブを持てます。ハイライト・シャドウの調整もここに統合しました。デモでは簡易近似で明るさ/コントラスト/色味に反映しています。</div>
+      <button id="curveResetBtn" class="btn-row small" style="margin-top:6px;">このチャンネルのカーブをリセット</button>
+    </div>
+
+    <div class="group-title" data-hue="color">色系</div>
+    <div class="field">
+      <label>彩度 <span class="val" id="v-saturate">100%</span></label>
+      <input type="range" id="saturate" min="0" max="200" value="100">
+    </div>
+    <div class="field">
+      <label>自然な彩度（Vibrance） <span class="val" id="v-vibrance">0</span></label>
+      <input type="range" id="vibrance" min="0" max="100" value="0">
+      <div class="hint">肌色などは控えめに、くすんだ色だけ鮮やかにする（F-11）</div>
+    </div>
+    <div class="field">
+      <label>色相 <span class="val" id="v-hue">0°</span></label>
+      <input type="range" id="hue" min="-180" max="180" value="0">
+    </div>
+    <div class="field">
+      <label>色温度（寒色 ← → 暖色） <span class="val" id="v-warmth">0</span></label>
+      <input type="range" id="warmth" min="-100" max="100" value="0">
+    </div>
+    <div class="field">
+      <label>HSL個別調整 <span class="adv-tag">上級</span></label>
+      <div class="hue-band-row" id="hueBandRow"></div>
+      <div id="hslSliders">
+        <label style="margin-top:4px;">この色域の彩度 <span class="val" id="v-hslS">0</span></label>
+        <input type="range" id="hslS" min="-100" max="100" value="0">
+        <label>この色域の明度 <span class="val" id="v-hslL">0</span></label>
+        <input type="range" id="hslL" min="-100" max="100" value="0">
+      </div>
+      <div class="hint">F-23。例: 空だけ青みを強める。デモでは選択中の色域にのみ簡易反映（実際のCSSでは完全な色域分離はできないため近似）。</div>
+    </div>
+    <div class="group-title" data-hue="texture">質感・効果系</div>
+    <div class="field">
+      <label>シャープネス <span class="val" id="v-sharpen">0</span></label>
+      <input type="range" id="sharpen" min="0" max="100" value="0">
+      <div class="hint">プレビューは簡易表現（コントラストで近似）。実際のアルゴリズムは /design で決定します。</div>
+    </div>
+    <div class="field">
+      <label>明瞭度（ローカルコントラスト） <span class="val" id="v-clarity">0</span></label>
+      <input type="range" id="clarity" min="0" max="100" value="0">
+      <div class="hint">輪郭・質感のメリハリを強める（F-12）</div>
+    </div>
+    <div class="field">
+      <label>全体ぼかし <span class="val" id="v-blur">0</span></label>
+      <input type="range" id="blur" min="0" max="20" value="0">
+      <div class="hint">F-09（当初「部分ぼかし」から単純化）</div>
+    </div>
+    <div class="field">
+      <label>ビネット（周辺減光） <span class="val" id="v-vignette">0%</span></label>
+      <input type="range" id="vignette" min="0" max="100" value="0">
+    </div>
+    <div class="field">
+      <label>ノイズ除去（デノイズ） <span class="adv-tag">上級</span> <span class="val" id="v-denoise">0</span></label>
+      <input type="range" id="denoise" min="0" max="100" value="0">
+      <div class="hint">F-26。デモでは効果を再現できないため、UI配置確認用です。</div>
+    </div>
+    <div class="field">
+      <label>プリセットフィルター</label>
+      <div class="btn-row" id="filterPresetBtns">
+        <button data-preset="none" class="active">なし</button>
+        <button data-preset="mono">モノクロ</button>
+        <button data-preset="sepia">セピア</button>
+        <button data-preset="vintage">ビンテージ</button>
+      </div>
+      <div class="hint">F-07（ワンクリック適用。当初スコープ外としたが再要望により追加）</div>
+    </div>
+
+    <div class="group-title" data-hue="transform">変形・仕上げ系 <span class="count">新設グループ（Q-14）</span></div>
+    <div class="field">
+      <label>反転</label>
+      <div class="btn-row" id="flipBtns">
+        <button id="flipHBtn">左右反転</button>
+        <button id="flipVBtn">上下反転</button>
+      </div>
+      <div class="hint">F-13</div>
+    </div>
+    <div class="field">
+      <label>回転</label>
+      <div class="btn-row" id="rotateBtns">
+        <button data-deg="-90">↺ 90°</button>
+        <button data-deg="90">↻ 90°</button>
+      </div>
+      <div class="hint">F-14（現在: <span id="rotateVal">0</span>°）</div>
+    </div>
+    <div class="field">
+      <label>トリミング</label>
+      <div class="btn-row">
+        <button id="cropStartBtn">トリミングを開始</button>
+        <button id="cropConfirmBtn" disabled>確定</button>
+        <button id="cropCancelBtn" disabled>解除</button>
+      </div>
+      <div class="hint">F-15。開始するとプレビュー上に枠が出ます。角のハンドルでサイズ変更、枠内ドラッグで移動。</div>
+    </div>
+    <div class="field">
+      <label>フレーム（縁取り） <span class="val" id="v-frame">0px</span></label>
+      <input type="range" id="frameWidth" min="0" max="30" value="0">
+      <div class="swatch-row" id="frameSwatches" style="margin-top:6px;"></div>
+      <div class="hint">F-16</div>
+    </div>
+    <div class="field">
+      <label>自動補正</label>
+      <div class="btn-row" id="autoCorrectBtns" style="flex-direction:column; align-items:stretch;">
+        <button data-mode="auto-contrast">① オートコントラスト</button>
+        <button data-mode="auto-wb">② オートホワイトバランス</button>
+        <button data-mode="adaptive">③ 適応的トーン補正</button>
+        <button data-mode="vivid">④ おまかせ強調（Vivid）</button>
+      </div>
+      <div class="hint">F-18。4種類のアルゴリズムから選んでワンクリック適用できます。①②③は実際にこの画像のピクセルを解析して補正値を算出、④は鮮やかさ重視の固定の仕上がりです。詳細は下の説明を参照。</div>
+    </div>
+
+    <div class="section-title">リサイズ（F-04）</div>
+    <div class="field">
+      <div class="btn-row" id="presetBtns">
+        <button data-w="1920" data-h="1080">FHD (1920×1080)</button>
+        <button data-w="3840" data-h="2160">4K (3840×2160)</button>
+        <button data-w="0" data-h="0" class="active" data-original>元のサイズ</button>
+      </div>
+    </div>
+    <div class="field">
+      <div class="resize-inputs">
+        <input type="number" id="resizeW" placeholder="幅">
+        <span>×</span>
+        <input type="number" id="resizeH" placeholder="高さ">
+        <button id="lockAspect" class="lock-btn active" title="縦横比を固定">🔒 比率固定</button>
+      </div>
+      <div class="hint">比率固定ON時、幅を変えると高さは自動計算されます（クロップ／レターボックスの最終仕様は /design で決定）。</div>
+    </div>
+
+    <button id="resetBtn">この画像の調整をリセット</button>
+    </div>
+  </div>
+
+  <!-- 下部アクション: F-03, F-06, F-20, F-27, F-28 -->
+  <div class="panel" id="actionBar">
+    <div class="actions">
+      <div class="actions-buttons">
+        <button id="applyAllBtn">この設定を対象フォルダの全画像に一括適用（F-03）</button>
+        <button id="setWallpaperBtn">この画像をデスクトップ壁紙に設定（F-06）</button>
+      </div>
+      <div class="slideshow-row" id="slideshowRow">
+        <label class="title">スライドショー（F-10）</label>
+        <select id="slideshowInterval">
+          <option value="1">1分ごと</option>
+          <option value="10">10分ごと</option>
+          <option value="30" selected>30分ごと</option>
+          <option value="60">1時間ごと</option>
+          <option value="360">6時間ごと</option>
+          <option value="1440">1日ごと</option>
+        </select>
+        <button id="slideshowToggleBtn">スライドショー OFF</button>
+        <span class="hint">直近に一括適用（F-03）した出力フォルダの画像すべてを対象に、ランダム順で自動的に切り替えます。Windows標準の「デスクトップの背景」スライドショー機能を設定するだけで、PCを再起動しても継続します（このデモでは実際には設定されません）。</span>
+      </div>
+      <div class="output-settings">
+        <div class="group">
+          <label class="title">出力形式（F-20）</label>
+          <div class="radio-row">
+            <label><input type="radio" name="outFmt" value="jpg" checked> jpg</label>
+            <label><input type="radio" name="outFmt" value="png"> png</label>
+            <label><input type="radio" name="outFmt" value="webp"> webp</label>
+          </div>
+        </div>
+        <div class="group">
+          <label class="title">バッチリネーム（F-27）</label>
+          <div class="rename-row">
+            <input type="text" id="renamePrefix" value="wallpaper_">
+            <input type="number" id="renameStart" value="1" min="0">
+            <input type="number" id="renameDigits" value="3" min="1" max="6">
+            <span>桁</span>
+          </div>
+          <span class="hint">例: <span id="renamePreview">wallpaper_001.jpg</span></span>
+        </div>
+        <div class="group">
+          <label class="title">高画質化（F-28） <span class="adv-tag">上級</span></label>
+          <label><input type="checkbox" id="superResChk"> AIによる高画質化（超解像）を有効にする</label>
+          <span class="hint">処理時間が大幅に増える場合があります</span>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <progress id="progressBar" max="100" value="0"></progress>
+      <span id="log"></span>
+    </div>
+  </div>
+
+</main>
+
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal">
+    <h3 id="modalTitle"></h3>
+    <p id="modalBody"></p>
+    <div class="modal-actions">
+      <button id="modalClose">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const images = [
+    { file: "assets/sample-01.jpg", label: "wallpaper_001.jpg" },
+    { file: "assets/sample-02.jpg", label: "wallpaper_002.jpg" },
+    { file: "assets/sample-03.jpg", label: "wallpaper_003.jpg" },
+    { file: "assets/sample-04.jpg", label: "wallpaper_004.jpg" },
+  ];
+
+  const HUE_COLORS = ["#ff5b5b","#ff9d5b","#ffe15b","#7be27b","#5bd0c9","#5b9dff","#9d6bff","#ff5bd6"];
+  const HUE_NAMES = ["赤","橙","黄","緑","青緑","青","紫","マゼンタ"];
+
+  // 調整は「共通設定」として全画像へ一括適用する想定。プレビュー画像の切り替えは見た目確認用。
+  const state = {
+    saturate: 100, brightness: 100, contrast: 100, hue: 0,
+    sharpen: 0, warmth: 0, vignette: 0,
+    vibrance: 0, clarity: 0, denoise: 0, blur: 0,
+    filterPreset: "none",
+    flipH: false, flipV: false, rotate: 0,
+    frameWidth: 0, frameColor: "#5b9dff",
+    hslBand: null, hsl: HUE_NAMES.map(() => ({ s: 0, l: 0 })),
+    curves: { rgb: [], r: [], g: [], b: [] }, curveChannel: "rgb",
+    resizeW: null, resizeH: null, lockAspect: true,
+  };
+  let currentIndex = 0;
+  let naturalRatio = 16 / 9;
+
+  const thumbsEl = document.getElementById("thumbs");
+  const previewImg = document.getElementById("previewImg");
+  const previewImgOriginal = document.getElementById("previewImgOriginal");
+  const previewMeta = document.getElementById("previewMeta");
+  const previewStage = document.getElementById("previewStage");
+
+  function buildThumbs() {
+    images.forEach((img, i) => {
+      const wrap = document.createElement("div");
+      wrap.className = "thumb" + (i === currentIndex ? " active" : "");
+      wrap.innerHTML = `<img src="${img.file}"><div class="thumb-label">${img.label}</div>`;
+      wrap.addEventListener("click", () => selectImage(i));
+      thumbsEl.appendChild(wrap);
+    });
+  }
+
+  function selectImage(i) {
+    currentIndex = i;
+    previewImg.src = images[i].file;
+    previewImgOriginal.src = images[i].file;
+    previewMeta.textContent = images[i].label;
+    [...thumbsEl.children].forEach((el, idx) => el.classList.toggle("active", idx === i));
+    previewImg.onload = () => { naturalRatio = previewImg.naturalWidth / previewImg.naturalHeight; };
+  }
+
+  const ids = ["saturate","brightness","contrast","hue","sharpen","warmth","vignette",
+               "vibrance","clarity","denoise","blur"];
+  const els = {};
+  ids.forEach(id => { els[id] = document.getElementById(id); });
+
+  function applyFilters() {
+    const sharpenApprox = 100 + state.sharpen * 0.5;
+    const rgbCurve = channelRegionDev("rgb");
+    let brightnessPct = state.brightness + rgbCurve.avg * 0.6;
+    let contrastPct = state.contrast * (state.sharpen ? sharpenApprox/100 : 1) + state.clarity * 0.3
+      + (rgbCurve.highlight - rgbCurve.shadow) * 0.4;
+    let saturatePct = state.saturate + state.vibrance * 0.4;
+    let hueDeg = state.hue;
+    let blurPx = state.blur * 1 + state.denoise * 0.04;
+    let grayscalePct = 0, sepiaPct = 0;
+
+    if (state.hslBand !== null) {
+      const band = state.hsl[state.hslBand];
+      saturatePct += band.s * 0.5;
+      brightnessPct += band.l * 0.3;
+    }
+
+    if (state.filterPreset === "mono") { grayscalePct = 100; }
+    if (state.filterPreset === "sepia") { sepiaPct = 80; saturatePct *= 0.6; }
+    if (state.filterPreset === "vintage") { sepiaPct = 35; contrastPct *= 0.92; brightnessPct *= 1.05; saturatePct *= 0.85; }
+
+    previewImg.style.filter =
+      `saturate(${Math.max(0,saturatePct)}%) brightness(${Math.max(0,brightnessPct)}%) contrast(${Math.max(0,contrastPct)}%) `+
+      `hue-rotate(${hueDeg}deg) blur(${Math.max(0,blurPx)}px) grayscale(${grayscalePct}%) sepia(${sepiaPct}%)`;
+
+    previewImg.style.transform =
+      `scaleX(${state.flipH ? -1 : 1}) scaleY(${state.flipV ? -1 : 1}) rotate(${state.rotate}deg)`;
+
+    const warmthOverlay = document.getElementById("warmthOverlay");
+    const warm = state.warmth;
+    warmthOverlay.style.background = warm >= 0
+      ? `rgba(255,150,60,${Math.min(Math.abs(warm)/100, 1) * 0.35})`
+      : `rgba(60,140,255,${Math.min(Math.abs(warm)/100, 1) * 0.35})`;
+    warmthOverlay.style.opacity = warm === 0 ? 0 : 1;
+
+    document.getElementById("vignetteOverlay").style.opacity = state.vignette / 100;
+
+    // トーンカーブ RGBチャンネル別の色味近似（F-21）
+    const rDev = channelRegionDev("r").avg, gDev = channelRegionDev("g").avg, bDev = channelRegionDev("b").avg;
+    const tintMag = Math.max(Math.abs(rDev), Math.abs(gDev), Math.abs(bDev));
+    const tintEl = document.getElementById("curveTintOverlay");
+    if (tintMag < 1) {
+      tintEl.style.opacity = 0;
+    } else {
+      const clampC = v => Math.max(0, Math.min(255, Math.round(128 + v * 2)));
+      tintEl.style.background = `rgb(${clampC(rDev)}, ${clampC(gDev)}, ${clampC(bDev)})`;
+      tintEl.style.opacity = Math.min(0.5, tintMag / 150 * 0.5);
+    }
+
+    // フレーム（F-16）
+    previewStage.style.boxShadow = state.frameWidth > 0
+      ? `inset 0 0 0 ${state.frameWidth}px ${state.frameColor}` : "none";
+  }
+
+  function updateLabels() {
+    document.getElementById("v-saturate").textContent = state.saturate + "%";
+    document.getElementById("v-brightness").textContent = state.brightness + "%";
+    document.getElementById("v-contrast").textContent = state.contrast + "%";
+    document.getElementById("v-hue").textContent = state.hue + "°";
+    document.getElementById("v-sharpen").textContent = state.sharpen;
+    document.getElementById("v-warmth").textContent = state.warmth;
+    document.getElementById("v-vignette").textContent = state.vignette + "%";
+    document.getElementById("v-vibrance").textContent = state.vibrance;
+    document.getElementById("v-clarity").textContent = state.clarity;
+    document.getElementById("v-denoise").textContent = state.denoise;
+    document.getElementById("v-blur").textContent = state.blur;
+    document.getElementById("v-frame").textContent = state.frameWidth + "px";
+    document.getElementById("rotateVal").textContent = state.rotate;
+    if (state.hslBand !== null) {
+      document.getElementById("v-hslS").textContent = state.hsl[state.hslBand].s;
+      document.getElementById("v-hslL").textContent = state.hsl[state.hslBand].l;
+    }
+  }
+
+  ids.forEach(id => {
+    els[id].addEventListener("input", () => {
+      state[id] = Number(els[id].value);
+      updateLabels();
+      applyFilters();
+    });
+  });
+
+  document.getElementById("resetBtn").addEventListener("click", () => {
+    state.saturate=100; state.brightness=100; state.contrast=100; state.hue=0; state.sharpen=0;
+    state.warmth=0; state.vignette=0;
+    state.vibrance=0; state.clarity=0; state.denoise=0; state.blur=0;
+    state.curves = { rgb: [], r: [], g: [], b: [] };
+    ids.forEach(id => { els[id].value = state[id]; });
+    updateLabels();
+    drawCurve();
+    applyFilters();
+  });
+
+  // リサイズ（F-04）
+  const resizeW = document.getElementById("resizeW");
+  const resizeH = document.getElementById("resizeH");
+  const lockBtn = document.getElementById("lockAspect");
+
+  lockBtn.addEventListener("click", () => {
+    state.lockAspect = !state.lockAspect;
+    lockBtn.classList.toggle("active", state.lockAspect);
+  });
+
+  resizeW.addEventListener("input", () => {
+    state.resizeW = Number(resizeW.value) || null;
+    if (state.lockAspect && state.resizeW) {
+      state.resizeH = Math.round(state.resizeW / naturalRatio);
+      resizeH.value = state.resizeH;
+    }
+  });
+  resizeH.addEventListener("input", () => {
+    state.resizeH = Number(resizeH.value) || null;
+    if (state.lockAspect && state.resizeH) {
+      state.resizeW = Math.round(state.resizeH * naturalRatio);
+      resizeW.value = state.resizeW;
+    }
+  });
+
+  document.querySelectorAll("#presetBtns button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("#presetBtns button").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      if (btn.dataset.original !== undefined) {
+        state.resizeW = null; state.resizeH = null;
+        resizeW.value = ""; resizeH.value = "";
+      } else {
+        state.resizeW = Number(btn.dataset.w);
+        state.resizeH = Number(btn.dataset.h);
+        resizeW.value = state.resizeW;
+        resizeH.value = state.resizeH;
+      }
+    });
+  });
+
+  // F-07: プリセットフィルター
+  document.querySelectorAll("#filterPresetBtns button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("#filterPresetBtns button").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      state.filterPreset = btn.dataset.preset;
+      applyFilters();
+    });
+  });
+
+  // F-13: 反転
+  document.getElementById("flipHBtn").addEventListener("click", (e) => {
+    state.flipH = !state.flipH;
+    e.target.classList.toggle("active", state.flipH);
+    applyFilters();
+  });
+  document.getElementById("flipVBtn").addEventListener("click", (e) => {
+    state.flipV = !state.flipV;
+    e.target.classList.toggle("active", state.flipV);
+    applyFilters();
+  });
+
+  // F-14: 回転
+  document.querySelectorAll("#rotateBtns button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      state.rotate = (state.rotate + Number(btn.dataset.deg) + 360) % 360;
+      updateLabels();
+      applyFilters();
+    });
+  });
+
+  // F-15: トリミング（簡易ドラッグ＆リサイズ）
+  const cropBox = document.getElementById("cropBox");
+  const cropHandle = document.getElementById("cropHandle");
+  const cropStartBtn = document.getElementById("cropStartBtn");
+  const cropConfirmBtn = document.getElementById("cropConfirmBtn");
+  const cropCancelBtn = document.getElementById("cropCancelBtn");
+  let cropDrag = null;
+
+  cropStartBtn.addEventListener("click", () => {
+    const r = previewStage.getBoundingClientRect();
+    cropBox.style.left = r.width * 0.1 + "px";
+    cropBox.style.top = r.height * 0.1 + "px";
+    cropBox.style.width = r.width * 0.8 + "px";
+    cropBox.style.height = r.height * 0.8 + "px";
+    cropBox.style.display = "block";
+    cropConfirmBtn.disabled = false;
+    cropCancelBtn.disabled = false;
+  });
+  cropConfirmBtn.addEventListener("click", () => {
+    const stageR = previewStage.getBoundingClientRect();
+    const boxR = cropBox.getBoundingClientRect();
+    const top = ((boxR.top - stageR.top) / stageR.height) * 100;
+    const left = ((boxR.left - stageR.left) / stageR.width) * 100;
+    const right = 100 - left - (boxR.width / stageR.width) * 100;
+    const bottom = 100 - top - (boxR.height / stageR.height) * 100;
+    previewImg.style.clipPath = `inset(${top}% ${right}% ${bottom}% ${left}%)`;
+    cropBox.style.display = "none";
+  });
+  cropCancelBtn.addEventListener("click", () => {
+    previewImg.style.clipPath = "none";
+    cropBox.style.display = "none";
+    cropConfirmBtn.disabled = true;
+    cropCancelBtn.disabled = true;
+  });
+  cropBox.addEventListener("mousedown", (e) => {
+    if (e.target === cropHandle) { cropDrag = { mode: "resize", startX: e.clientX, startY: e.clientY, w: cropBox.offsetWidth, h: cropBox.offsetHeight }; }
+    else { cropDrag = { mode: "move", startX: e.clientX, startY: e.clientY, left: cropBox.offsetLeft, top: cropBox.offsetTop }; }
+    e.preventDefault();
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (!cropDrag) return;
+    const dx = e.clientX - cropDrag.startX, dy = e.clientY - cropDrag.startY;
+    if (cropDrag.mode === "move") {
+      cropBox.style.left = Math.max(0, cropDrag.left + dx) + "px";
+      cropBox.style.top = Math.max(0, cropDrag.top + dy) + "px";
+    } else {
+      cropBox.style.width = Math.max(40, cropDrag.w + dx) + "px";
+      cropBox.style.height = Math.max(40, cropDrag.h + dy) + "px";
+    }
+  });
+  document.addEventListener("mouseup", () => { cropDrag = null; });
+
+  // F-16: フレーム
+  const frameColors = ["#ffffff", "#000000", "#5b9dff", "#ff9d5b", "#57c785"];
+  const frameSwatchesEl = document.getElementById("frameSwatches");
+  frameColors.forEach((c, i) => {
+    const s = document.createElement("div");
+    s.className = "swatch" + (i === 0 ? " active" : "");
+    s.style.background = c;
+    s.addEventListener("click", () => {
+      [...frameSwatchesEl.children].forEach(el => el.classList.remove("active"));
+      s.classList.add("active");
+      state.frameColor = c;
+      applyFilters();
+    });
+    frameSwatchesEl.appendChild(s);
+  });
+  document.getElementById("frameWidth").addEventListener("input", (e) => {
+    state.frameWidth = Number(e.target.value);
+    updateLabels();
+    applyFilters();
+  });
+
+
+  // F-18: 自動補正（4パターン）。①②③は実画像のピクセルを解析して算出、④は固定の仕上がり値
+  function analyzeImagePixels() {
+    const sampleW = 120, sampleH = Math.max(1, Math.round(sampleW / naturalRatio));
+    const off = document.createElement("canvas");
+    off.width = sampleW; off.height = sampleH;
+    const octx = off.getContext("2d");
+    octx.drawImage(previewImgOriginal, 0, 0, sampleW, sampleH);
+    const data = octx.getImageData(0, 0, sampleW, sampleH).data;
+    let rSum = 0, gSum = 0, bSum = 0, n = 0;
+    const lums = [];
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      rSum += r; gSum += g; bSum += b; n++;
+      lums.push(0.299 * r + 0.587 * g + 0.114 * b);
+    }
+    lums.sort((a, b) => a - b);
+    const pct = p => lums[Math.max(0, Math.min(lums.length - 1, Math.floor(p * (lums.length - 1))))];
+    return { rAvg: rSum / n, gAvg: gSum / n, bAvg: bSum / n, p01: pct(0.01), p50: pct(0.5), p99: pct(0.99) };
+  }
+
+  function setAdjustState(patch) {
+    Object.entries(patch).forEach(([k, v]) => {
+      state[k] = v;
+      if (els[k]) els[k].value = v;
+    });
+    updateLabels();
+    applyFilters();
+  }
+
+  const AUTO_CORRECT_LABELS = {
+    "auto-contrast": "① オートコントラスト",
+    "auto-wb": "② オートホワイトバランス",
+    "adaptive": "③ 適応的トーン補正",
+    "vivid": "④ おまかせ強調（Vivid）",
+  };
+
+  document.querySelectorAll("#autoCorrectBtns button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const mode = btn.dataset.mode;
+      const stats = analyzeImagePixels();
+
+      if (mode === "auto-contrast") {
+        // 明部・暗部の外れ値（上下1%）を無視して、実際に使われている輝度レンジを0-255いっぱいに引き伸ばす
+        const range = Math.max(20, stats.p99 - stats.p01);
+        const contrast = Math.round(Math.max(80, Math.min(200, (255 / range) * 100)));
+        const brightness = Math.round(Math.max(80, Math.min(130, 100 + (128 - stats.p50) * 0.15)));
+        setAdjustState({ contrast, brightness });
+      } else if (mode === "auto-wb") {
+        // グレーワールド仮説: R/G/Bの平均が揃うように色温度を補正
+        const bias = ((stats.rAvg - stats.bAvg) / 255) * -120;
+        const warmth = Math.round(Math.max(-100, Math.min(100, bias)));
+        setAdjustState({ warmth });
+      } else if (mode === "adaptive") {
+        // CLAHE風の適応的トーン補正の近似: 明瞭度（ローカルコントラスト）を中心に、全体コントラストは控えめに引き伸ばす
+        const range = Math.max(20, stats.p99 - stats.p01);
+        const contrast = Math.round(Math.max(90, Math.min(160, 100 + ((255 / range) * 100 - 100) * 0.5)));
+        setAdjustState({ contrast, clarity: 55 });
+      } else if (mode === "vivid") {
+        // 実画像解析ではなく、鮮やかさ重視の固定の仕上がり（コントラスト・彩度・自然な彩度を持ち上げる）
+        setAdjustState({ brightness: 104, contrast: 108, saturate: 112, vibrance: 40 });
+      }
+
+      logEl.className = "ok";
+      logEl.textContent = `自動補正「${AUTO_CORRECT_LABELS[mode]}」を適用しました` +
+        (mode === "vivid" ? "（固定の仕上がり値）" : "（このサンプル画像のピクセルを解析して算出）");
+    });
+  });
+
+  // F-23: HSL個別調整
+  const hueBandRow = document.getElementById("hueBandRow");
+  HUE_COLORS.forEach((c, i) => {
+    const b = document.createElement("div");
+    b.className = "hue-band";
+    b.style.background = c;
+    b.title = HUE_NAMES[i];
+    b.addEventListener("click", () => {
+      [...hueBandRow.children].forEach(el => el.classList.remove("active"));
+      b.classList.add("active");
+      state.hslBand = i;
+      document.getElementById("hslS").value = state.hsl[i].s;
+      document.getElementById("hslL").value = state.hsl[i].l;
+      updateLabels();
+      applyFilters();
+    });
+    hueBandRow.appendChild(b);
+  });
+  document.getElementById("hslS").addEventListener("input", (e) => {
+    if (state.hslBand === null) return;
+    state.hsl[state.hslBand].s = Number(e.target.value);
+    updateLabels(); applyFilters();
+  });
+  document.getElementById("hslL").addEventListener("input", (e) => {
+    if (state.hslBand === null) return;
+    state.hsl[state.hslBand].l = Number(e.target.value);
+    updateLabels(); applyFilters();
+  });
+
+  // F-21: トーンカーブ（本格エディタ: 点の自由な追加/移動/削除＋RGBチャンネル別）
+  const curveCanvas = document.getElementById("curveCanvas");
+  const cctx = curveCanvas.getContext("2d");
+  const CH_COLOR = { rgb: "#5b9dff", r: "#ff5b5b", g: "#5bd97b", b: "#5bb0ff" };
+  let curveDrag = null; // { channel, index }
+
+  function channelPoints(ch) { return state.curves[ch]; }
+
+  function curveScreenPoints(ch) {
+    const W = curveCanvas.width, H = curveCanvas.height;
+    const pts = channelPoints(ch).slice().sort((a, b) => a.x - b.x);
+    return [{ x: 0, y: H }, ...pts, { x: W, y: 0 }];
+  }
+
+  // Catmull-Rom → 3次ベジェ変換で、点を折れ線ではなくなめらかなS字カーブとして結ぶ
+  function strokeSmoothPath(ctx, pts) {
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    if (pts.length === 2) { ctx.lineTo(pts[1].x, pts[1].y); ctx.stroke(); return; }
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[i === 0 ? 0 : i - 1];
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      const p3 = pts[i + 2 < pts.length ? i + 2 : i + 1];
+      const cp1x = p1.x + (p2.x - p0.x) / 6;
+      const cp1y = p1.y + (p2.y - p0.y) / 6;
+      const cp2x = p2.x - (p3.x - p1.x) / 6;
+      const cp2y = p2.y - (p3.y - p1.y) / 6;
+      ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+    }
+    ctx.stroke();
+  }
+
+  function drawCurve() {
+    const W = curveCanvas.width, H = curveCanvas.height;
+    cctx.clearRect(0, 0, W, H);
+    cctx.strokeStyle = "#3a3e47";
+    cctx.beginPath(); cctx.moveTo(0, H); cctx.lineTo(W, 0); cctx.stroke();
+
+    ["rgb", "r", "g", "b"].forEach(ch => {
+      const isActive = ch === state.curveChannel;
+      const pts = curveScreenPoints(ch);
+      if (!isActive && channelPoints(ch).length === 0) return; // 点が無い非アクティブchはグリッドのみ
+      cctx.strokeStyle = CH_COLOR[ch];
+      cctx.globalAlpha = isActive ? 1 : 0.35;
+      cctx.lineWidth = isActive ? 2 : 1.5;
+      strokeSmoothPath(cctx, pts);
+      if (isActive) {
+        cctx.fillStyle = CH_COLOR[ch];
+        pts.slice(1, -1).forEach(p => { cctx.beginPath(); cctx.arc(p.x, p.y, 5, 0, Math.PI * 2); cctx.fill(); });
+      }
+      cctx.globalAlpha = 1;
+    });
+  }
+
+  function channelRegionDev(ch) {
+    const W = curveCanvas.width, H = curveCanvas.height;
+    const pts = channelPoints(ch);
+    if (!pts.length) return { avg: 0, shadow: 0, highlight: 0 };
+    let allSum = 0, shadowSum = 0, shadowN = 0, highSum = 0, highN = 0;
+    pts.forEach(p => {
+      const baselineY = H - p.x * (H / W); // (0,H)-(W,0) の対角線上のY
+      const dev = baselineY - p.y;
+      allSum += dev;
+      if (p.x < W / 3) { shadowSum += dev; shadowN++; }
+      else if (p.x > W * 2 / 3) { highSum += dev; highN++; }
+    });
+    return {
+      avg: allSum / pts.length,
+      shadow: shadowN ? shadowSum / shadowN : 0,
+      highlight: highN ? highSum / highN : 0,
+    };
+  }
+
+  function findNearPoint(ch, mx, my) {
+    const pts = channelPoints(ch);
+    for (let i = 0; i < pts.length; i++) {
+      if (Math.hypot(pts[i].x - mx, pts[i].y - my) < 10) return i;
+    }
+    return -1;
+  }
+
+  function canvasCoords(e) {
+    const r = curveCanvas.getBoundingClientRect();
+    return {
+      x: (e.clientX - r.left) * (curveCanvas.width / r.width),
+      y: (e.clientY - r.top) * (curveCanvas.height / r.height),
+    };
+  }
+
+  curveCanvas.addEventListener("mousedown", (e) => {
+    const { x, y } = canvasCoords(e);
+    const ch = state.curveChannel;
+    const idx = findNearPoint(ch, x, y);
+    if (idx >= 0) {
+      curveDrag = { channel: ch, index: idx };
+    } else {
+      channelPoints(ch).push({ x: Math.max(1, Math.min(curveCanvas.width - 1, x)), y: Math.max(0, Math.min(curveCanvas.height, y)) });
+      curveDrag = { channel: ch, index: channelPoints(ch).length - 1 };
+      drawCurve(); applyFilters();
+    }
+  });
+  curveCanvas.addEventListener("dblclick", (e) => {
+    const { x, y } = canvasCoords(e);
+    const ch = state.curveChannel;
+    const idx = findNearPoint(ch, x, y);
+    if (idx >= 0) {
+      channelPoints(ch).splice(idx, 1);
+      curveDrag = null;
+      drawCurve(); applyFilters();
+    }
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (!curveDrag) return;
+    const { x, y } = canvasCoords(e);
+    const p = channelPoints(curveDrag.channel)[curveDrag.index];
+    if (!p) return;
+    p.x = Math.max(1, Math.min(curveCanvas.width - 1, x));
+    p.y = Math.max(0, Math.min(curveCanvas.height, y));
+    drawCurve();
+    applyFilters();
+  });
+  document.addEventListener("mouseup", () => { curveDrag = null; });
+
+  document.querySelectorAll("#curveChannelBtns button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("#curveChannelBtns button").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      state.curveChannel = btn.dataset.ch;
+      drawCurve();
+    });
+  });
+  document.getElementById("curveResetBtn").addEventListener("click", () => {
+    state.curves[state.curveChannel] = [];
+    drawCurve(); applyFilters();
+  });
+  drawCurve();
+
+  // F-19: Before/After比較
+  const baToggleBtn = document.getElementById("baToggleBtn");
+  const baOriginal = document.getElementById("baOriginal");
+  const baDivider = document.getElementById("baDivider");
+  const baSlider = document.getElementById("baSlider");
+  const baHint = document.getElementById("baHint");
+  const baLabelBefore = document.getElementById("baLabelBefore");
+  const baLabelAfter = document.getElementById("baLabelAfter");
+  let baOn = false;
+
+  function updateBaSplit() {
+    const pct = baSlider.value;
+    baOriginal.style.clipPath = `inset(0 ${100 - pct}% 0 0)`;
+    baDivider.style.left = pct + "%";
+  }
+  baToggleBtn.addEventListener("click", () => {
+    baOn = !baOn;
+    baToggleBtn.classList.toggle("active", baOn);
+    [baOriginal, baDivider, baSlider, baHint, baLabelBefore, baLabelAfter].forEach(el => {
+      el.style.display = baOn ? (el === baSlider || el === baHint ? "inline-block" : "block") : "none";
+    });
+    if (baOn) updateBaSplit();
+  });
+  baSlider.addEventListener("input", updateBaSplit);
+
+  // F-03: 一括適用（擬似）
+  const applyAllBtn = document.getElementById("applyAllBtn");
+  const progressBar = document.getElementById("progressBar");
+  const logEl = document.getElementById("log");
+
+  applyAllBtn.addEventListener("click", () => {
+    applyAllBtn.disabled = true;
+    progressBar.style.display = "inline-block";
+    progressBar.value = 0;
+    logEl.className = "";
+    const fmt = document.querySelector('input[name="outFmt"]:checked').value;
+    const superRes = document.getElementById("superResChk").checked;
+    logEl.textContent = "処理中…（デモのため実際の画像は生成されません）" + (superRes ? "／AI高画質化を実行中…" : "");
+    let p = 0;
+    const timer = setInterval(() => {
+      p += 8;
+      progressBar.value = Math.min(p, 100);
+      if (p >= 100) {
+        clearInterval(timer);
+        applyAllBtn.disabled = false;
+        progressBar.style.display = "none";
+        logEl.className = "ok";
+        logEl.textContent = `対象フォルダの全画像に適用しました（デモのため実際には処理していません。出力形式: ${fmt}／ファイル名例: ${renamePreviewText()}）`;
+      }
+    }, 120);
+  });
+
+  // F-27: バッチリネームのプレビュー
+  const renamePrefix = document.getElementById("renamePrefix");
+  const renameStart = document.getElementById("renameStart");
+  const renameDigits = document.getElementById("renameDigits");
+  const renamePreviewEl = document.getElementById("renamePreview");
+  function renamePreviewText() {
+    const fmt = document.querySelector('input[name="outFmt"]:checked').value;
+    const num = String(renameStart.value).padStart(Number(renameDigits.value) || 1, "0");
+    return `${renamePrefix.value}${num}.${fmt}`;
+  }
+  function updateRenamePreview() { renamePreviewEl.textContent = renamePreviewText(); }
+  [renamePrefix, renameStart, renameDigits].forEach(el => el.addEventListener("input", updateRenamePreview));
+  document.querySelectorAll('input[name="outFmt"]').forEach(el => el.addEventListener("change", updateRenamePreview));
+
+  // F-06: 壁紙設定（擬似）
+  const setWallpaperBtn = document.getElementById("setWallpaperBtn");
+  const modalBackdrop = document.getElementById("modalBackdrop");
+  const modalTitle = document.getElementById("modalTitle");
+  const modalBody = document.getElementById("modalBody");
+
+  setWallpaperBtn.addEventListener("click", () => {
+    modalTitle.textContent = "デスクトップ壁紙に設定（デモ）";
+    modalBody.textContent =
+      `「${images[currentIndex].label}」を、現在の調整・リサイズ設定で加工した画像として ` +
+      `デスクトップ壁紙に設定します。（このデモでは実際には変更されません。実装時はWindowsの壁紙設定APIを使用します）`;
+    modalBackdrop.classList.add("show");
+  });
+  document.getElementById("modalClose").addEventListener("click", () => {
+    modalBackdrop.classList.remove("show");
+  });
+
+  // F-10: 壁紙のスライドショー化（擬似。Windows標準スライドショー機能を設定するイメージ）
+  const slideshowToggleBtn = document.getElementById("slideshowToggleBtn");
+  const slideshowInterval = document.getElementById("slideshowInterval");
+  let slideshowOn = false;
+
+  slideshowToggleBtn.addEventListener("click", () => {
+    slideshowOn = !slideshowOn;
+    slideshowToggleBtn.classList.toggle("active", slideshowOn);
+    slideshowToggleBtn.textContent = slideshowOn ? "スライドショー ON" : "スライドショー OFF";
+    const intervalLabel = slideshowInterval.options[slideshowInterval.selectedIndex].textContent;
+    logEl.className = "ok";
+    logEl.textContent = slideshowOn
+      ? `スライドショーをONにしました（${intervalLabel}・ランダム順。デモのためWindowsの設定は実際には変更されません）`
+      : "スライドショーをOFFにしました（デモのため実際の設定は変更されません）";
+  });
+  slideshowInterval.addEventListener("change", () => {
+    if (!slideshowOn) return;
+    const intervalLabel = slideshowInterval.options[slideshowInterval.selectedIndex].textContent;
+    logEl.className = "ok";
+    logEl.textContent = `切り替え間隔を${intervalLabel}に変更しました（デモのため実際の設定は変更されません）`;
+  });
+
+  buildThumbs();
+  selectImage(0);
+  updateLabels();
+  updateRenamePreview();
+  applyFilters();
+</script>
+
+</body>
+</html>
